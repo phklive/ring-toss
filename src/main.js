@@ -9,6 +9,8 @@ function boot({ win, doc, Game, Render, Net, Peer }) {
   const share = el('share');
   const link = el('link');
   const copy = el('copy');
+  const nameForm = el('name-form');
+  const nameInput = el('name');
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('boot: 2D canvas context unavailable');
   if (typeof Peer !== 'function') throw new Error('boot: PeerJS failed to load');
@@ -28,22 +30,59 @@ function boot({ win, doc, Game, Render, Net, Peer }) {
     },
     onConnect() {
       share.hidden = true;
-      if (game.host) Game.begin(game);
-      else Game.setLobby(game, ['CONNECTED', 'STARTING...']);
+      Game.connected(game);
     },
     onMessage: (msg) => Game.applyMessage(game, msg),
-    onClose: () => Game.end(game, 'FRIEND LEFT'),
+    onClose: () => Game.end(game, `${game.names[Game.them(game)]} LEFT`),
     onError: (text) => Game.end(game, text),
   });
-  if (!code) {
-    Game.setLobby(game, ['CREATING GAME...']);
-    net.host();
-  } else if (Net.isCode(code)) {
-    Game.setLobby(game, [`JOINING GAME ${code}...`]);
-    net.join(code);
-  } else {
+  const startNet = () => {
+    if (code) {
+      Game.setLobby(game, [`JOINING GAME ${code}...`]);
+      net.join(code);
+    } else {
+      Game.setLobby(game, ['CREATING GAME...']);
+      net.host();
+    }
+  };
+
+  // Ask for a name first, prefilled with the last one used in this browser.
+  // Storage can be blocked (private mode); then the name just isn't remembered.
+  const NAME_KEY = 'ringtoss.name';
+  const loadName = () => {
+    try {
+      return win.localStorage.getItem(NAME_KEY) || '';
+    } catch {
+      return '';
+    }
+  };
+  const saveName = (name) => {
+    try {
+      win.localStorage.setItem(NAME_KEY, name);
+    } catch {
+      // not remembered, nothing else depends on it
+    }
+  };
+  if (code && !Net.isCode(code)) {
     Game.end(game, 'BAD GAME LINK');
+  } else {
+    Game.setLobby(game, ['ENTER YOUR NAME BELOW']);
+    nameInput.value = Game.cleanName(loadName());
+    nameForm.hidden = false;
+    nameInput.focus();
   }
+  nameInput.addEventListener('input', () => {
+    nameInput.value = Game.cleanName(nameInput.value);
+  });
+  nameForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = Game.cleanName(nameInput.value);
+    if (!name) return nameInput.focus();
+    saveName(name);
+    nameForm.hidden = true;
+    Game.setName(game, name);
+    startNet();
+  });
 
   // The link stays selected, so a refused clipboard still leaves Cmd/Ctrl+C.
   copy.addEventListener('click', () => {
@@ -69,7 +108,7 @@ function boot({ win, doc, Game, Render, Net, Peer }) {
     down = false;
   };
   const onKey = (handler) => (e) => {
-    if (e.code !== 'Space') return;
+    if (e.code !== 'Space' || e.target === nameInput) return;
     e.preventDefault();
     handler();
   };

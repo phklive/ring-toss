@@ -89,6 +89,42 @@ test('createGame: left hosts, right joins, both start in the lobby', () => {
     ],
   );
   assert.throws(() => Game.createGame('middle'), /unknown side "middle"/);
+  assert.deepEqual(host.names, { left: 'YOU', right: 'FRIEND' });
+  assert.deepEqual(guest.names, { left: 'FRIEND', right: 'YOU' });
+  assert.equal(Game.them(host), 'right');
+  assert.equal(Game.them(guest), 'left');
+});
+
+test('names are cleaned to what the pixel font draws, and setName insists on that', () => {
+  assert.equal(Game.cleanName('al ice!'), 'ALICE');
+  assert.equal(Game.cleanName('abcdefghijk'), 'ABCDEFGH');
+  assert.equal(Game.cleanName(42), '42');
+  assert.equal(Game.cleanName('éé'), '');
+  const g = Game.createGame('right');
+  Game.setName(g, 'BOB');
+  assert.equal(g.names.right, 'BOB');
+  for (const bad of ['', 'bob', 'TOOLONGNAME', 'A B', 7]) {
+    assert.throws(() => Game.setName(g, bad), /invalid name/);
+  }
+});
+
+test('on connect each side says hello; the host also starts the match', () => {
+  const host = Game.createGame('left');
+  Game.setName(host, 'ALICE');
+  Game.connected(host);
+  assert.deepEqual(host.outbox, [{ t: 'hello', name: 'ALICE' }, { t: 'start' }]);
+  assert.equal(host.phase, 'countdown');
+
+  const guest = Game.createGame('right');
+  Game.setName(guest, 'BOB');
+  Game.connected(guest);
+  assert.deepEqual(guest.outbox, [{ t: 'hello', name: 'BOB' }]);
+  assert.deepEqual(guest.lobby, ['CONNECTED', 'STARTING...']);
+
+  Game.applyMessage(guest, host.outbox[0]);
+  Game.applyMessage(host, guest.outbox[0]);
+  assert.deepEqual(host.names, { left: 'ALICE', right: 'BOB' });
+  assert.deepEqual(guest.names, { left: 'ALICE', right: 'BOB' });
 });
 
 test('lobby text only changes while in the lobby; lobby and ended ignore input', () => {
@@ -341,7 +377,8 @@ test("the peer's charge animates locally and their throw carries the real power"
 });
 
 test('malformed or misdirected messages end the match loudly', () => {
-  const host = [null, 'hi', {}, { t: 'nope' }, { t: 'throw', power: 2 }, { t: 'throw', power: -0.1 },
+  const host = [null, 'hi', {}, { t: 'nope' }, { t: 'hello' }, { t: 'hello', name: 'bob' },
+    { t: 'hello', name: 'WAYTOOLONG' }, { t: 'throw', power: 2 }, { t: 'throw', power: -0.1 },
     { t: 'throw', power: '0.5' }, { t: 'start' }, { t: 'full' }, { t: 'score', left: 1, right: 1 },
     { t: 'over', winner: 'left', left: 10, right: 0 }];
   const guest = [{ t: 'score', left: -1, right: 0 }, { t: 'score', left: 1, right: 1.5 },

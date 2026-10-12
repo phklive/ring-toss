@@ -9,7 +9,8 @@ const { CFG } = Game;
 const flush = () => new Promise(setImmediate);
 
 // Browser, DOM, and network stand-ins. `clipboard` decides whether copying works.
-function fakeEnv({ hash = '', ctx = { fillStyle: '', fillRect() {} }, clipboard = 'ok', missing = null } = {}) {
+// `stored` is the remembered name, or 'blocked' when storage throws.
+function fakeEnv({ hash = '', ctx = { fillStyle: '', fillRect() {} }, clipboard = 'ok', missing = null, stored = null } = {}) {
   const listeners = {};
   const on = (target) => (type, fn) => {
     listeners[`${target}.${type}`] = fn;
@@ -21,6 +22,21 @@ function fakeEnv({ hash = '', ctx = { fillStyle: '', fillRect() {} }, clipboard 
       this.selected = true;
     } },
     copy: { textContent: 'Copy link', addEventListener: on('copy') },
+    'name-form': { hidden: true, addEventListener: on('form') },
+    name: { value: '', focused: 0, focus() {
+      this.focused += 1;
+    }, addEventListener: on('name') },
+  };
+  const saved = {};
+  const localStorage = {
+    getItem: (k) => {
+      if (stored === 'blocked') throw new Error('SecurityError');
+      return k === 'ringtoss.name' ? stored : null;
+    },
+    setItem: (k, v) => {
+      if (stored === 'blocked') throw new Error('SecurityError');
+      saved[k] = v;
+    },
   };
   const assigned = [];
   const win = {
@@ -30,6 +46,7 @@ function fakeEnv({ hash = '', ctx = { fillStyle: '', fillRect() {} }, clipboard 
     navigator: {
       clipboard: { writeText: (text) => (clipboard === 'ok' ? Promise.resolve(text) : Promise.reject(new Error('no'))) },
     },
+    localStorage,
     addEventListener: on('win'),
     requestAnimationFrame: (fn) => {
       win.nextFrame = fn;
@@ -54,16 +71,22 @@ function fakeEnv({ hash = '', ctx = { fillStyle: '', fillRect() {} }, clipboard 
   const frames = (seconds) => {
     for (let i = Math.ceil(seconds / CFG.MAX_DT); i > 0; i--) win.nextFrame((now += 1000 * CFG.MAX_DT));
   };
-  const key = (type, code) => {
-    const e = { code, prevented: false, preventDefault: () => (e.prevented = true) };
+  const key = (type, code, target = null) => {
+    const e = { code, target, prevented: false, preventDefault: () => (e.prevented = true) };
     listeners[`win.${type}`](e);
     return e;
   };
-  return { win, els, net, listeners, assigned, start, frames, key };
+  const submitName = (value) => {
+    els.name.value = value;
+    let prevented = false;
+    listeners['form.submit']({ preventDefault: () => (prevented = true) });
+    assert.ok(prevented);
+  };
+  return { win, els, net, listeners, assigned, saved, start, frames, key, submitName };
 }
 
 test('boot fails loudly when the page is missing a piece', () => {
-  for (const id of ['game', 'share', 'link', 'copy']) {
+  for (const id of ['game', 'share', 'link', 'copy', 'name-form', 'name']) {
     assert.throws(() => fakeEnv({ missing: id }).start(), new RegExp(`#${id} not found`));
   }
   assert.throws(() => fakeEnv({ ctx: null }).start(), /2D canvas context unavailable/);
@@ -88,6 +111,8 @@ test('no room code: host a room, show the link, start when the friend connects',
   const env = fakeEnv();
   const game = env.start();
   assert.equal(game.me, 'left');
+  assert.deepEqual(env.net.calls, []);
+  env.submitName('alice');
   assert.deepEqual(env.net.calls, [['host']]);
   assert.deepEqual(game.lobby, ['CREATING GAME...']);
 
@@ -100,7 +125,7 @@ test('no room code: host a room, show the link, start when the friend connects',
   assert.equal(env.els.share.hidden, true);
   assert.equal(game.phase, 'countdown');
   env.win.nextFrame(0);
-  assert.deepEqual(env.net.sent, [{ t: 'start' }]);
+  assert.deepEqual(env.net.sent, [{ t: 'hello', name: 'ALICE' }, { t: 'start' }]);
   assert.deepEqual(game.outbox, []);
 });
 
@@ -108,20 +133,23 @@ test('room code in the link: join it, then follow the host', () => {
   const env = fakeEnv({ hash: '#wxyz' });
   const game = env.start();
   assert.equal(game.me, 'right');
+  env.submitName('BOB');
   assert.deepEqual(env.net.calls, [['join', 'WXYZ']]);
   assert.deepEqual(game.lobby, ['JOINING GAME WXYZ...']);
   env.net.handlers.onConnect();
   assert.deepEqual(game.lobby, ['CONNECTED', 'STARTING...']);
+  env.net.handlers.onMessage({ t: 'hello', name: 'ALICE' });
   env.net.handlers.onMessage({ t: 'start' });
   assert.equal(game.phase, 'countdown');
   env.net.handlers.onClose();
   assert.equal(game.phase, 'ended');
-  assert.equal(game.ending, 'FRIEND LEFT');
+  assert.equal(game.ending, 'ALICE LEFT');
 });
 
 test('a malformed room code ends right away without dialling', () => {
   const env = fakeEnv({ hash: '#nope!' });
   const game = env.start();
+  assert.equal(env.els['name-form'].hidden, true);
   assert.deepEqual(env.net.calls, []);
   assert.equal(game.ending, 'BAD GAME LINK');
 });
@@ -153,6 +181,7 @@ test('copy button copies the link, or leaves it selected for a manual copy', asy
 test('space, pointer, and blur drive the throw button; throws go to the friend', () => {
   const env = fakeEnv();
   const game = env.start();
+  env.submitName('ALICE');
   env.net.handlers.onConnect();
   env.frames(CFG.COUNTDOWN + 0.1);
   assert.equal(game.phase, 'playing');
@@ -192,6 +221,7 @@ test('space, pointer, and blur drive the throw button; throws go to the friend',
 test('once the game has ended, any press opens a fresh room', () => {
   const env = fakeEnv({ hash: '#wxyz' });
   env.start();
+  env.submitName('BOB');
   env.listeners['win.pointerdown']();
   assert.deepEqual(env.assigned, []);
   env.net.handlers.onClose();
@@ -209,4 +239,42 @@ test('frame loop starts with dt 0 and caps long gaps at MAX_DT', () => {
   assert.equal(game.time, CFG.MAX_DT);
   env.win.nextFrame(9010);
   assert.ok(Math.abs(game.time - (CFG.MAX_DT + 0.01)) < 1e-9);
+});
+
+test('name box: prefilled from the last game, cleaned as you type, required to play', () => {
+  const env = fakeEnv({ stored: 'zoe' });
+  const game = env.start();
+  assert.equal(env.els['name-form'].hidden, false);
+  assert.equal(env.els.name.value, 'ZOE');
+  assert.equal(env.els.name.focused, 1);
+  assert.deepEqual(game.lobby, ['ENTER YOUR NAME BELOW']);
+
+  env.els.name.value = 'jo jo!';
+  env.listeners['name.input']();
+  assert.equal(env.els.name.value, 'JOJO');
+
+  env.submitName(' !? ');
+  assert.equal(env.els.name.focused, 2);
+  assert.deepEqual(env.net.calls, []);
+  assert.equal(env.els['name-form'].hidden, false);
+
+  env.submitName('jojo');
+  assert.equal(env.els['name-form'].hidden, true);
+  assert.equal(game.names.left, 'JOJO');
+  assert.deepEqual(env.saved, { 'ringtoss.name': 'JOJO' });
+});
+
+test('name box works with storage empty or blocked; typing a space in it is not a throw', () => {
+  const empty = fakeEnv();
+  empty.start();
+  assert.equal(empty.els.name.value, '');
+
+  const blocked = fakeEnv({ stored: 'blocked' });
+  const game = blocked.start();
+  assert.equal(blocked.els.name.value, '');
+  const typing = blocked.key('keydown', 'Space', blocked.els.name);
+  assert.equal(typing.prevented, false);
+  blocked.submitName('ANN');
+  assert.equal(game.names.left, 'ANN');
+  assert.deepEqual(blocked.saved, {});
 });

@@ -40,6 +40,12 @@ const Game = (() => {
 
   const SIDES = ['left', 'right'];
   const other = (side) => (side === 'left' ? 'right' : 'left');
+  const them = (game) => other(game.me);
+
+  // Names use only what the pixel font can draw.
+  const NAME_MAX = 8;
+  const isName = (s) => typeof s === 'string' && new RegExp(`^[A-Z0-9]{1,${NAME_MAX}}$`).test(s);
+  const cleanName = (raw) => String(raw).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, NAME_MAX);
 
   // Nearest pole is worth 1, farthest is worth POLES.length.
   function pointsFor(side, poleIndex) {
@@ -89,6 +95,8 @@ const Game = (() => {
       phase: 'lobby',
       lobby: [],
       ending: '',
+      // Placeholders until the players' names are known.
+      names: { [me]: 'YOU', [other(me)]: 'FRIEND' },
       time: 0,
       prevDown: false,
       outbox: [], // messages for the peer, drained by the caller
@@ -102,6 +110,11 @@ const Game = (() => {
     if (game.phase === 'lobby') game.lobby = lines;
   }
 
+  function setName(game, name) {
+    if (!isName(name)) throw new Error(`setName: invalid name "${name}"`);
+    game.names[game.me] = name;
+  }
+
   function startCountdown(game) {
     resetMatch(game);
     game.phase = 'countdown';
@@ -111,6 +124,13 @@ const Game = (() => {
   function begin(game) {
     startCountdown(game);
     game.outbox.push({ t: 'start' });
+  }
+
+  // The link to the friend is up: introduce ourselves; the host starts the match.
+  function connected(game) {
+    game.outbox.push({ t: 'hello', name: game.names[game.me] });
+    if (game.host) begin(game);
+    else setLobby(game, ['CONNECTED', 'STARTING...']);
   }
 
   // Connection gone or broken. The first reason wins.
@@ -294,8 +314,8 @@ const Game = (() => {
       game[side].anim = Math.max(0, game[side].anim - dt);
     }
     // The peer's meter is animated locally; their 'throw' carries the real power.
-    const them = game[other(game.me)];
-    if (them.charging) sweep(them, dt);
+    const peer = game[them(game)];
+    if (peer.charging) sweep(peer, dt);
 
     if (game.phase === 'countdown') {
       game.countdown -= dt;
@@ -319,15 +339,17 @@ const Game = (() => {
 
   // Apply one message from the peer. Anything unexpected ends the match loudly.
   function applyMessage(game, msg) {
-    const them = other(game.me);
+    const peer = them(game);
     const t = msg !== null && typeof msg === 'object' ? msg.t : undefined;
-    if (t === 'charge') {
-      startCharging(game[them]);
+    if (t === 'hello' && isName(msg.name)) {
+      game.names[peer] = msg.name;
+    } else if (t === 'charge') {
+      startCharging(game[peer]);
     } else if (t === 'throw' && isPower(msg.power)) {
-      game[them].power = msg.power;
-      throwDisc(game, them);
+      game[peer].power = msg.power;
+      throwDisc(game, peer);
     } else if (t === 'ready') {
-      game.rematch[them] = true;
+      game.rematch[peer] = true;
       maybeRestart(game);
     } else if (t === 'full' && !game.host) {
       end(game, 'GAME IS FULL');
@@ -352,8 +374,12 @@ const Game = (() => {
     update,
     applyMessage,
     setLobby,
+    setName,
+    cleanName,
+    connected,
     begin,
     end,
+    them,
     pointsFor,
     speedForPower,
     powerToHit,

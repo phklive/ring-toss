@@ -75,9 +75,29 @@ test('countdown shows the number and which colour you play', () => {
   assert.ok(textAt(h, Render.PAL.text, 5));
   assert.ok(textAt(h, Render.PAL.leftLight, 2, 86));
 
+  assert.ok(textAt(h, Render.PAL.rightLight, 2, 106)); // VS <their name>
+
   const guest = Game.createGame('right');
   Game.applyMessage(guest, { t: 'start' });
-  assert.ok(textAt(draw(guest), Render.PAL.rightLight, 2, 86));
+  const c = draw(guest);
+  assert.ok(textAt(c, Render.PAL.rightLight, 2, 86));
+  assert.ok(textAt(c, Render.PAL.leftLight, 2, 106));
+});
+
+test('the scoreboard shows both names, as wide as names get', () => {
+  const g = Game.createGame('left');
+  Game.setName(g, 'WWWWWWWW');
+  Game.applyMessage(g, { t: 'hello', name: 'MMMMMMMM' });
+  g.phase = 'playing';
+  g.scores = { left: 10, right: 10 };
+  const c = draw(g);
+  const hud = c.rects.filter((r) => r.w === 2 && r.y < 20 && r.color !== Render.PAL.ink);
+  const left = hud.filter((r) => r.color === Render.PAL.leftLight);
+  const right = hud.filter((r) => r.color === Render.PAL.rightLight);
+  // Left name ends before the centre title, right name starts after it, both on screen.
+  assert.ok(Math.max(...left.map((r) => r.x)) < 140);
+  assert.ok(Math.min(...right.map((r) => r.x)) > 180);
+  assert.ok(Math.max(...right.map((r) => r.x)) < CFG.W);
 });
 
 test('playing frame draws throwers, power bars, discs in every state, and popups', () => {
@@ -156,7 +176,7 @@ test('every message the game can show is drawable', () => {
   const ctx = fakeCtx();
   for (const text of ['GAME IS FULL', 'BAD MESSAGE FROM FRIEND', 'GAME NOT FOUND', 'BROWSER NOT SUPPORTED',
     'NETWORK ERROR', 'COULD NOT CONNECT', 'BAD GAME LINK', 'CREATING GAME...', 'JOINING GAME WXYZ...',
-    'CONNECTED', 'STARTING...']) {
+    'CONNECTED', 'STARTING...', 'ENTER YOUR NAME BELOW', 'ABCDEFGH LEFT', 'MMMMMMMM WANTS A REMATCH!']) {
     Render.drawText(ctx, text, 0, 0, '#fff');
   }
 });

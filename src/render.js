@@ -230,12 +230,11 @@ const Render = (() => {
   }
 
   const them = (game) => (game.me === 'left' ? 'right' : 'left');
-  const nameOf = (game, side) => (side === game.me ? 'YOU' : 'FRIEND');
 
   function drawHud(ctx, game) {
     const { W, WIN_SCORE } = game.cfg;
-    label(ctx, `${nameOf(game, 'left')} ${game.scores.left}`, 4, 4, PAL.leftLight, 2);
-    const right = `${nameOf(game, 'right')} ${game.scores.right}`;
+    label(ctx, `${game.names.left} ${game.scores.left}`, 4, 4, PAL.leftLight, 2);
+    const right = `${game.names.right} ${game.scores.right}`;
     label(ctx, right, W - 4 - textWidth(right, 2), 4, PAL.rightLight, 2);
     centered(ctx, game, `FIRST TO ${WIN_SCORE}`, 7, PAL.text);
   }
@@ -245,6 +244,7 @@ const Render = (() => {
   function drawOverlay(ctx, game) {
     const { W, H, RESTART_DELAY, WIN_SCORE } = game.cfg;
     const mine = PAL[`${game.me}Light`];
+    const theirName = game.names[them(game)];
     if (game.phase === 'lobby') {
       rect(ctx, PAL.overlay, 0, 0, W, H);
       centered(ctx, game, 'RING TOSS', 22, PAL.title, 3);
@@ -256,18 +256,20 @@ const Render = (() => {
     } else if (game.phase === 'countdown') {
       centered(ctx, game, String(Math.ceil(game.countdown)), 50, PAL.text, 5);
       centered(ctx, game, game.me === 'left' ? 'YOU ARE BLUE' : 'YOU ARE RED', 86, mine, 2);
+      centered(ctx, game, `VS ${theirName}`, 106, PAL[`${them(game)}Light`], 2);
     } else if (game.phase === 'over') {
       rect(ctx, PAL.overlay, 0, 0, W, H);
       const won = game.winner === game.me;
-      centered(ctx, game, won ? 'YOU WIN!' : 'FRIEND WINS!', 40, PAL[`${game.winner}Light`], 3);
-      centered(ctx, game, `YOU ${game.scores[game.me]}  FRIEND ${game.scores[them(game)]}`, 74, PAL.text, 2);
+      centered(ctx, game, won ? 'YOU WIN!' : `${theirName} WINS!`, 40, PAL[`${game.winner}Light`], 3);
+      const { names, scores } = game;
+      centered(ctx, game, `${names.left} ${scores.left}  ${names.right} ${scores.right}`, 74, PAL.text, 2);
       if (game.rematch[game.me]) {
-        centered(ctx, game, 'WAITING FOR FRIEND...', 104, PAL.text);
+        centered(ctx, game, `WAITING FOR ${theirName}...`, 104, PAL.text);
       } else {
         if (game.overTimer >= RESTART_DELAY && blinkOn(game)) {
           centered(ctx, game, 'PRESS SPACE FOR REMATCH', 104, PAL.text);
         }
-        if (game.rematch[them(game)]) centered(ctx, game, 'FRIEND WANTS A REMATCH!', 118, PAL.title);
+        if (game.rematch[them(game)]) centered(ctx, game, `${theirName} WANTS A REMATCH!`, 118, PAL.title);
       }
     } else if (game.phase === 'ended') {
       rect(ctx, PAL.overlay, 0, 0, W, H);
