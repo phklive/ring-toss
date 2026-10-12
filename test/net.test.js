@@ -64,6 +64,8 @@ function recorder() {
   return { log, handlers };
 }
 
+const mockTime = (t) => t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+
 const seq = (...vals) => {
   let i = 0;
   return () => vals[i++ % vals.length];
@@ -75,7 +77,8 @@ test('isCode accepts four capital letters without I or O', () => {
   for (const bad of ['ABC', 'ABCDE', 'abcd', 'ABIO', 'AB1D', '']) assert.ok(!Net.isCode(bad), bad);
 });
 
-test('host registers its room code, reports it, and links the first caller', () => {
+test('host registers its room code, reports it, and links the first caller', (t) => {
+  mockTime(t);
   const { FakePeer, peers } = fakePeerClass();
   const { log, handlers } = recorder();
   const net = Net.createNet(FakePeer, handlers, seq(0, 0.99, 0.5, 0.1));
@@ -99,7 +102,7 @@ test('host registers its room code, reports it, and links the first caller', () 
 });
 
 test('host turns away anyone dialling in after the friend', (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  mockTime(t);
   const { FakePeer, peers } = fakePeerClass();
   const { log, handlers } = recorder();
   Net.createNet(FakePeer, handlers, seq(0)).host();
@@ -138,7 +141,8 @@ test('peer errors before the link map to readable reasons', () => {
   }
 });
 
-test('signalling errors after the link is up do not end the match', () => {
+test('signalling errors after the link is up do not end the match', (t) => {
+  mockTime(t);
   const { FakePeer, peers } = fakePeerClass();
   const { log, handlers } = recorder();
   Net.createNet(FakePeer, handlers).host();
@@ -150,7 +154,7 @@ test('signalling errors after the link is up do not end the match', () => {
 });
 
 test('guest dials the room with a reliable JSON channel', (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  mockTime(t);
   const { FakePeer, peers } = fakePeerClass();
   const { log, handlers } = recorder();
   const net = Net.createNet(FakePeer, handlers);
@@ -164,11 +168,12 @@ test('guest dials the room with a reliable JSON channel', (t) => {
   net.send({ t: 'throw', power: 0.5 });
   assert.deepEqual(conn.sent, [{ t: 'throw', power: 0.5 }]);
   t.mock.timers.tick(Net.CONNECT_TIMEOUT_MS);
-  assert.deepEqual(log, [['onConnect', undefined]]);
+  assert.deepEqual(log[0], ['onConnect', undefined]);
+  assert.ok(!log.some(([name]) => name === 'onError')); // connect timeout was cancelled
 });
 
 test('guest gives up if the link is not up in time, and reports only once', (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+  mockTime(t);
   const { FakePeer, peers } = fakePeerClass();
   const { log, handlers } = recorder();
   Net.createNet(FakePeer, handlers).join('WXYZ');
@@ -182,6 +187,30 @@ test('guest gives up if the link is not up in time, and reports only once', (t) 
   t.mock.timers.tick(Net.CONNECT_TIMEOUT_MS);
   assert.deepEqual(second.log, [['onError', 'GAME NOT FOUND']]);
   assert.equal(peers.length, 1);
+});
+
+test('peers ping each other, hide pings from the game, and call a long silence a leave', (t) => {
+  mockTime(t);
+  const { FakePeer, peers } = fakePeerClass();
+  const { log, handlers } = recorder();
+  Net.createNet(FakePeer, handlers).host();
+  const conn = new FakeConn();
+  peers[0].emit('connection', conn);
+  conn.up();
+  t.mock.timers.tick(Net.PING_MS);
+  assert.deepEqual(conn.sent, [{ t: 'ping' }]);
+  conn.emit('data', { t: 'ping' });
+  conn.emit('data', null);
+  assert.deepEqual(log, [['onConnect', undefined], ['onMessage', null]]);
+
+  t.mock.timers.tick(Net.SILENCE_MS);
+  assert.equal(log.length, 2); // exactly SILENCE_MS of quiet is still fine
+  t.mock.timers.tick(Net.PING_MS);
+  assert.deepEqual(log.at(-1), ['onClose', undefined]);
+  const pings = conn.sent.length;
+  t.mock.timers.tick(Net.SILENCE_MS);
+  assert.equal(conn.sent.length, pings); // heartbeat stopped
+  assert.equal(log.length, 3);
 });
 
 test('join refuses a malformed room code', () => {

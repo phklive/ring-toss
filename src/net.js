@@ -5,6 +5,10 @@ const Net = (() => {
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O: easy to read aloud
   const CONNECT_TIMEOUT_MS = 15000;
   const FULL_CLOSE_MS = 500;
+  // WebRTC often never reports a closed tab, so peers ping each other and
+  // treat a long silence as the friend having left.
+  const PING_MS = 1000;
+  const SILENCE_MS = 10000;
   const ERRORS = {
     'peer-unavailable': 'GAME NOT FOUND',
     'browser-incompatible': 'BROWSER NOT SUPPORTED',
@@ -34,12 +38,26 @@ const Net = (() => {
 
     function attach(c) {
       conn = c;
+      let lastHeard = 0;
+      let heartbeat = null;
+      const gone = () => {
+        clearInterval(heartbeat);
+        handlers.onClose();
+      };
       c.on('open', () => {
         clearTimeout(timer);
+        lastHeard = Date.now();
+        heartbeat = setInterval(() => {
+          if (Date.now() - lastHeard > SILENCE_MS) gone();
+          else c.send({ t: 'ping' });
+        }, PING_MS);
         handlers.onConnect();
       });
-      c.on('data', handlers.onMessage);
-      c.on('close', handlers.onClose);
+      c.on('data', (msg) => {
+        lastHeard = Date.now();
+        if (!(msg && msg.t === 'ping')) handlers.onMessage(msg);
+      });
+      c.on('close', gone);
       c.on('error', () => fail('NETWORK ERROR'));
     }
 
@@ -78,7 +96,7 @@ const Net = (() => {
     return { host, join, send };
   }
 
-  return { createNet, isCode, CONNECT_TIMEOUT_MS, FULL_CLOSE_MS };
+  return { createNet, isCode, CONNECT_TIMEOUT_MS, FULL_CLOSE_MS, PING_MS, SILENCE_MS };
 })();
 
 if (typeof module !== 'undefined') module.exports = Net;
