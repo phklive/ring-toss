@@ -274,6 +274,7 @@ const Render = (() => {
     } else if (game.phase === 'ended') {
       rect(ctx, PAL.overlay, 0, 0, W, H);
       centered(ctx, game, game.ending, 60, PAL.title, 2);
+      if (game.hint) centered(ctx, game, game.hint, 80, PAL.text);
       if (blinkOn(game)) centered(ctx, game, 'PRESS SPACE FOR A NEW GAME', 100, PAL.text);
     }
   }

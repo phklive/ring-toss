@@ -38,6 +38,10 @@ const Game = (() => {
     },
   });
 
+  // Bump whenever the messages peers exchange change. Browsers can keep a stale
+  // copy of the page for a while, so two friends may run different versions.
+  const PROTOCOL = 2;
+
   const SIDES = ['left', 'right'];
   const other = (side) => (side === 'left' ? 'right' : 'left');
   const them = (game) => other(game.me);
@@ -95,6 +99,8 @@ const Game = (() => {
       phase: 'lobby',
       lobby: [],
       ending: '',
+      hint: '',
+      peerKnown: false, // set by the peer's hello
       // Placeholders until the players' names are known.
       names: { [me]: 'YOU', [other(me)]: 'FRIEND' },
       time: 0,
@@ -128,16 +134,17 @@ const Game = (() => {
 
   // The link to the friend is up: introduce ourselves; the host starts the match.
   function connected(game) {
-    game.outbox.push({ t: 'hello', name: game.names[game.me] });
+    game.outbox.push({ t: 'hello', v: PROTOCOL, name: game.names[game.me] });
     if (game.host) begin(game);
     else setLobby(game, ['CONNECTED', 'STARTING...']);
   }
 
   // Connection gone or broken. The first reason wins.
-  function end(game, reason) {
+  function end(game, reason, hint = '') {
     if (game.phase === 'ended') return;
     game.phase = 'ended';
     game.ending = reason;
+    game.hint = hint;
     game.left.charging = false;
     game.right.charging = false;
   }
@@ -341,8 +348,13 @@ const Game = (() => {
   function applyMessage(game, msg) {
     const peer = them(game);
     const t = msg !== null && typeof msg === 'object' ? msg.t : undefined;
-    if (t === 'hello' && isName(msg.name)) {
+    // Every peer says hello first, so anything else first (bar a host turning us
+    // away) means the friend runs a different version of the page.
+    if (t === 'hello' ? msg.v !== PROTOCOL : !game.peerKnown && t !== 'full') {
+      end(game, 'VERSION MISMATCH', 'BOTH PLAYERS RELOAD THE PAGE');
+    } else if (t === 'hello' && isName(msg.name)) {
       game.names[peer] = msg.name;
+      game.peerKnown = true;
     } else if (t === 'charge') {
       startCharging(game[peer]);
     } else if (t === 'throw' && isPower(msg.power)) {
@@ -370,6 +382,7 @@ const Game = (() => {
 
   return {
     CFG,
+    PROTOCOL,
     createGame,
     update,
     applyMessage,

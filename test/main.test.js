@@ -125,7 +125,7 @@ test('no room code: host a room, show the link, start when the friend connects',
   assert.equal(env.els.share.hidden, true);
   assert.equal(game.phase, 'countdown');
   env.win.nextFrame(0);
-  assert.deepEqual(env.net.sent, [{ t: 'hello', name: 'ALICE' }, { t: 'start' }]);
+  assert.deepEqual(env.net.sent, [{ t: 'hello', v: Game.PROTOCOL, name: 'ALICE' }, { t: 'start' }]);
   assert.deepEqual(game.outbox, []);
 });
 
@@ -138,7 +138,7 @@ test('room code in the link: join it, then follow the host', () => {
   assert.deepEqual(game.lobby, ['JOINING GAME WXYZ...']);
   env.net.handlers.onConnect();
   assert.deepEqual(game.lobby, ['CONNECTED', 'STARTING...']);
-  env.net.handlers.onMessage({ t: 'hello', name: 'ALICE' });
+  env.net.handlers.onMessage({ t: 'hello', v: Game.PROTOCOL, name: 'ALICE' });
   env.net.handlers.onMessage({ t: 'start' });
   assert.equal(game.phase, 'countdown');
   env.net.handlers.onClose();
@@ -277,4 +277,14 @@ test('name box works with storage empty or blocked; typing a space in it is not 
   blocked.submitName('ANN');
   assert.equal(game.names.left, 'ANN');
   assert.deepEqual(blocked.saved, {});
+});
+
+test('index.html loads every script with the package version, so caches never mix versions', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..');
+  const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const local = [...html.matchAll(/<script src="(src\/[^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(local, ['game', 'render', 'net', 'main'].map((f) => `src/${f}.js?v=${version}`));
 });

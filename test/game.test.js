@@ -18,9 +18,12 @@ const runUntil = (g, pred, down = false, maxSeconds = 10) => {
   assert.fail('condition never reached');
 };
 
-// A host mid-match with an empty outbox.
+const hello = (name = 'PEER') => ({ t: 'hello', v: Game.PROTOCOL, name });
+
+// A game mid-match that has met its peer, with an empty outbox.
 function playing(side = 'left') {
   const g = Game.createGame(side);
+  Game.applyMessage(g, hello());
   g.phase = 'countdown';
   run(g, CFG.COUNTDOWN + 2 * DT);
   assert.equal(g.phase, 'playing');
@@ -112,13 +115,13 @@ test('on connect each side says hello; the host also starts the match', () => {
   const host = Game.createGame('left');
   Game.setName(host, 'ALICE');
   Game.connected(host);
-  assert.deepEqual(host.outbox, [{ t: 'hello', name: 'ALICE' }, { t: 'start' }]);
+  assert.deepEqual(host.outbox, [hello('ALICE'), { t: 'start' }]);
   assert.equal(host.phase, 'countdown');
 
   const guest = Game.createGame('right');
   Game.setName(guest, 'BOB');
   Game.connected(guest);
-  assert.deepEqual(guest.outbox, [{ t: 'hello', name: 'BOB' }]);
+  assert.deepEqual(guest.outbox, [hello('BOB')]);
   assert.deepEqual(guest.lobby, ['CONNECTED', 'STARTING...']);
 
   Game.applyMessage(guest, host.outbox[0]);
@@ -377,8 +380,8 @@ test("the peer's charge animates locally and their throw carries the real power"
 });
 
 test('malformed or misdirected messages end the match loudly', () => {
-  const host = [null, 'hi', {}, { t: 'nope' }, { t: 'hello' }, { t: 'hello', name: 'bob' },
-    { t: 'hello', name: 'WAYTOOLONG' }, { t: 'throw', power: 2 }, { t: 'throw', power: -0.1 },
+  const host = [null, 'hi', {}, { t: 'nope' }, { t: 'hello', v: Game.PROTOCOL },
+    { t: 'hello', v: Game.PROTOCOL, name: 'bob' }, { t: 'hello', v: Game.PROTOCOL, name: 'WAYTOOLONG' }, { t: 'throw', power: 2 }, { t: 'throw', power: -0.1 },
     { t: 'throw', power: '0.5' }, { t: 'start' }, { t: 'full' }, { t: 'score', left: 1, right: 1 },
     { t: 'over', winner: 'left', left: 10, right: 0 }];
   const guest = [{ t: 'score', left: -1, right: 0 }, { t: 'score', left: 1, right: 1.5 },
@@ -393,6 +396,25 @@ test('malformed or misdirected messages end the match loudly', () => {
   }
 });
 
+test('a peer on another version of the page is caught, with a hint to reload', () => {
+  const cases = [
+    ['left', { t: 'hello', name: 'OLD' }], // old pages sent no version
+    ['left', { t: 'hello', v: Game.PROTOCOL + 1, name: 'NEW' }],
+    ['left', { t: 'charge' }], // older still: no hello at all
+    ['right', { t: 'start' }],
+  ];
+  for (const [side, msg] of cases) {
+    const g = Game.createGame(side);
+    Game.applyMessage(g, msg);
+    assert.equal(g.phase, 'ended', JSON.stringify(msg));
+    assert.equal(g.ending, 'VERSION MISMATCH');
+    assert.equal(g.hint, 'BOTH PLAYERS RELOAD THE PAGE');
+  }
+  const ok = Game.createGame('left');
+  Game.end(ok, 'FRIEND LEFT');
+  assert.equal(ok.hint, '');
+});
+
 test('guest told the room is full ends with that reason', () => {
   const g = Game.createGame('right');
   Game.applyMessage(g, { t: 'full' });
@@ -402,8 +424,12 @@ test('guest told the room is full ends with that reason', () => {
 
 test('a full match over the wire: both screens agree, then a rematch starts', () => {
   const p = pair();
-  Game.begin(p.host);
+  Game.setName(p.host, 'ALICE');
+  Game.setName(p.guest, 'BOB');
+  Game.connected(p.host);
+  Game.connected(p.guest);
   step(p);
+  assert.deepEqual(p.host.names, p.guest.names);
   assert.equal(p.guest.phase, 'countdown');
   stepFor(p, CFG.COUNTDOWN + DT);
   assert.equal(p.host.phase, 'playing');

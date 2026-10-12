@@ -78,6 +78,7 @@ test('countdown shows the number and which colour you play', () => {
   assert.ok(textAt(h, Render.PAL.rightLight, 2, 106)); // VS <their name>
 
   const guest = Game.createGame('right');
+  Game.applyMessage(guest, { t: 'hello', v: Game.PROTOCOL, name: 'ALICE' });
   Game.applyMessage(guest, { t: 'start' });
   const c = draw(guest);
   assert.ok(textAt(c, Render.PAL.rightLight, 2, 86));
@@ -87,7 +88,7 @@ test('countdown shows the number and which colour you play', () => {
 test('the scoreboard shows both names, as wide as names get', () => {
   const g = Game.createGame('left');
   Game.setName(g, 'WWWWWWWW');
-  Game.applyMessage(g, { t: 'hello', name: 'MMMMMMMM' });
+  Game.applyMessage(g, { t: 'hello', v: Game.PROTOCOL, name: 'MMMMMMMM' });
   g.phase = 'playing';
   g.scores = { left: 10, right: 10 };
   const c = draw(g);
@@ -168,15 +169,20 @@ test('ended screen shows the reason and a blinking new-game prompt', () => {
   const on = draw(g);
   assert.ok(textAt(on, Render.PAL.title, 2, 60));
   assert.ok(textAt(on, Render.PAL.text, 1, 100));
+  assert.ok(!textAt(on, Render.PAL.text, 1, 80));
   g.time = 0.5;
   assert.ok(!textAt(draw(g), Render.PAL.text, 1, 100));
+
+  const mismatch = Game.createGame('left');
+  Game.applyMessage(mismatch, { t: 'charge' });
+  assert.ok(textAt(draw(mismatch), Render.PAL.text, 1, 80));
 });
 
 test('every message the game can show is drawable', () => {
   const ctx = fakeCtx();
   for (const text of ['GAME IS FULL', 'BAD MESSAGE FROM FRIEND', 'GAME NOT FOUND', 'BROWSER NOT SUPPORTED',
     'NETWORK ERROR', 'COULD NOT CONNECT', 'BAD GAME LINK', 'CREATING GAME...', 'JOINING GAME WXYZ...',
-    'CONNECTED', 'STARTING...', 'ENTER YOUR NAME BELOW', 'ABCDEFGH LEFT', 'MMMMMMMM WANTS A REMATCH!']) {
+    'CONNECTED', 'STARTING...', 'ENTER YOUR NAME BELOW', 'ABCDEFGH LEFT', 'MMMMMMMM WANTS A REMATCH!', 'VERSION MISMATCH', 'BOTH PLAYERS RELOAD THE PAGE']) {
     Render.drawText(ctx, text, 0, 0, '#fff');
   }
 });
