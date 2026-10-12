@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ring Toss</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #111827;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+        font: 14px/1.4 ui-monospace, Menlo, monospace;
+      }
+      canvas {
+        image-rendering: pixelated;
+        touch-action: none;
+      }
+      .bar {
+        position: fixed;
+        left: 50%;
+        bottom: 16px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
+        width: min(560px, calc(100vw - 32px));
+      }
+      .bar[hidden] {
+        display: none;
+      }
+      .bar input {
+        flex: 1;
+        min-width: 0;
+        padding: 8px;
+        font: inherit;
+        color: #111827;
+        background: #fef9c3;
+        border: 2px solid #facc15;
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      #name {
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+      .bar button {
+        padding: 8px 12px;
+        font: inherit;
+        font-weight: bold;
+        color: #111827;
+        background: #facc15;
+        border: 2px solid #facc15;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <form id="name-form" class="bar" hidden>
+      <input id="name" maxlength="8" autocomplete="nickname" autocapitalize="characters" spellcheck="false"
+        placeholder="YOUR NAME" aria-label="Your name, up to 8 letters or digits" />
+      <button type="submit">Play</button>
+    </form>
+    <div id="share" class="bar" hidden>
+      <input id="link" readonly aria-label="Game link to send your friend" />
+      <button id="copy" type="button">Copy link</button>
+    </div>
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <!-- ?v= is package.json's version (a test checks): bump it on every deploy so
+         browsers never mix cached old scripts with new ones. -->
+    <script src="src/game.js?v=1.3.0"></script>
+    <script src="src/render.js?v=1.3.0"></script>
+    <script src="src/net.js?v=1.3.0"></script>
+    <script src="src/main.js?v=1.3.0"></script>
+    <script>
+      // Exposed for poking at the live match from the devtools console.
+      window.ringToss = boot({ win: window, doc: document, Game, Render, Net, Peer: window.Peer });
+    </script>
+  </body>
+</html>
